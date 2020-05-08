@@ -1,11 +1,6 @@
-import docker
 import os
-import json
 from threading import Thread
-from time import time as _time
-from time import sleep as _sleep
 from subprocess import Popen, PIPE
-import sys
 from select import select
 
 
@@ -34,9 +29,9 @@ class ShifterRunner:
                     error = True
                 else:
                     error = False
-                l = f.readline().decode('utf-8')
-                if len(l) > 0:
-                    self.logger.log_lines([{'line': l, 'error': error}])
+                line = f.readline().decode('utf-8')
+                if len(line) > 0:
+                    self.logger.log_lines([{'line': line, 'error': error}])
             if last:
                 cont = False
             if p.poll() is not None:
@@ -60,12 +55,12 @@ class ShifterRunner:
 
         return id
 
-    def run(self, job_id, image, env, vols, labels, subjob, queues):
+    def run(self, job_id, image, env, vols, labels, queues):
         cmd = [
             'shifter',
             '--image=%s' % (image)
             ]
-        # TODO: Do somehting with the labels
+        # Should we do somehting with the labels?
         newenv = os.environ
         for e in env.keys():
             newenv[e] = env[e]
@@ -77,5 +72,5 @@ class ShifterRunner:
         return proc
 
     def remove(self, c):
-        # TODO
-        pass
+        # Kill process
+        c.kill()

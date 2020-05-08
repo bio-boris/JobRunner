@@ -8,11 +8,6 @@ sudo: required
 services:
   - docker
 
-branches:
-  only:
-    - master
-
-env:
 
 before_install:
   - docker version

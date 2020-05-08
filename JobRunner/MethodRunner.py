@@ -2,12 +2,9 @@ from .DockerRunner import DockerRunner
 from .ShifterRunner import ShifterRunner
 import os
 import json
-from time import time as _time
-from time import sleep as _sleep
 from configparser import ConfigParser
-import sys
+from datetime import datetime, timezone
 
-# TODO: Get secure params (e.g. username and password)
 # Write out config file with all kbase endpoints / secure params
 
 
@@ -67,13 +64,25 @@ class MethodRunner:
             conf_prop.write(configfile)
 
         # Create input.json
+        nowutc = datetime.utcnow().replace(tzinfo=timezone.utc)
+        ts = nowutc.replace(microsecond=0).isoformat()
+
+        ctx = {
+            "call_stack": [
+                {
+                    "method": params['method'],
+                    "time": ts
+                }
+            ],
+            "service_ver": params.get('service_ver')
+        }
         input = {
+            "id": self.job_id,
             "version": "1.1",
             "method": params['method'],
             "params": params['params'],
-            "context": dict()
+            "context": ctx
             }
-        # TODO: fill in context
         ijson = job_dir + '/input.json'
         with open(ijson, 'w') as f:
             f.write(json.dumps(input))
@@ -81,6 +90,10 @@ class MethodRunner:
         # Create token file
         with open(job_dir + '/token', 'w') as f:
             f.write(self.token)
+
+        wdt = os.path.join(job_dir, 'tmp')
+        if not os.path.exists(wdt):
+            os.mkdir(wdt)
 
         return True
 
@@ -122,12 +135,17 @@ class MethodRunner:
         vols = {
             job_dir: {'bind': '/kb/module/work', 'mode': 'rw'}
         }
+        if subjob:
+            wdt = os.path.join(job_dir, "/tmp")
+            vols[wdt] = {'bind': "/kb/module/work/tmp", 'mode': 'rw'}
+
         if 'volume_mounts' in config:
             for v in config['volume_mounts']:
                 k = v['host_dir']
                 k = k.replace('${username}', config['user'])
                 if not os.path.exists(k):
-                    self.logger.error("Volume mount (%s) doesn't exist." % (k))
+                    estr = "Volume mount ({}) doesn't exist.".format(k)
+                    self.logger.error(estr)
                     raise OSError("Missing volume mount")
                 vols[k] = {
                     'bind': v['container_dir']
@@ -140,14 +158,20 @@ class MethodRunner:
             ref_data = os.path.join(self.refbase, module_info['data_folder'],
                                     module_info['data_version'])
             vols[ref_data] = {'bind': '/data', 'mode': 'ro'}
-        # TODO: Handle extra volumes
+
         env = {
             'SDK_CALLBACK_URL': callback
         }
-        # TODO: Add secure params
+
+        # Add secure params
+        if module_info.get('secure_config_params') is not None:
+            for p in module_info['secure_config_params']:
+                k = 'KBASE_SECURE_CONFIG_PARAM_{}'.format(p['param_name'])
+                env[k] = p['param_value']
+
         # Set up labels used for job administration purposes
         labels = {
-            "app_id": "%s/%s" % (module, method),
+            "app_id": "{}/{}".format(module, method),
             "app_name": method,
             "condor_id": os.environ.get('CONDOR_ID'),
             "image_name": image,
@@ -167,17 +191,27 @@ class MethodRunner:
             'code_url': module_info['git_url'],
             'commit': module_info['git_commit_hash']
         }
-        # TODO Do we need to do more for error handling?
-        c = self.runner.run(job_id, image, env, vols, labels, subjob, [fin_q])
+        # Do we need to do more for error handling?
+        c = self.runner.run(job_id, image, env, vols, labels, [fin_q])
         self.containers.append(c)
         return action
 
-    def get_output(self, job_id, subjob=True):
+    def get_output(self, job_id, subjob=True, max_size=1024*1024*1024):
         # Attempt to read output file and see if it is well formed
         # Throw errors if not
         of = os.path.join(self._get_job_dir(job_id, subjob=subjob),
                           'output.json')
         if os.path.exists(of):
+            size = os.stat(of).st_size
+            if size > max_size:
+                e = {
+                    "code": -32601,
+                    "name": "Too much output from a method",
+                    "message": "Method returned too much output " +
+                               "({} > {})".format(size, max_size)
+                }
+                return {"error": e}
+
             with open(of) as json_file:
                 output = json.load(json_file)
         else:

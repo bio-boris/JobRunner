@@ -84,3 +84,30 @@ CATALOG_LIST_VOLUME_MOUNTS = [
         }]
     }
 ]
+
+CATALOG_GET_SECURE_CONFIG_PARAMS = [
+    {
+        u'module_name': u'mock_app',
+        u'param_name': u'param1',
+        u'param_value': u'value1',
+        u'version': u''
+    },
+    {
+        u'is_password': 0,
+        u'module_name': u'mock_app',
+        u'param_name': u'param2',
+        u'param_value': u'value2',
+        u'version': u''
+    }
+]
+
+AUTH_V2_TOKEN = {
+    'type': 'Developer',
+    'id': '91111111-1bd6-4953-a0dc-a6bb24d5e25c',
+    'expires': 1567268700544,
+    'created': 1559492700544,
+    'name': '20190602',
+    'user': 'scanon',
+    'custom': {},
+    'cachefor': 300000
+    }

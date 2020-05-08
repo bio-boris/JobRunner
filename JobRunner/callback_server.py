@@ -24,6 +24,7 @@ def _check_finished():
     except Empty:
         pass
 
+
 async def _process_rpc(data, token):
     (module, method) = data['method'].split('.')
     # async submi job
@@ -63,17 +64,17 @@ async def _process_rpc(data, token):
                     resp['finished'] = True
                     return resp
                 await asyncio.sleep(1)
-        except:
+        except Exception:
             return {'error': 'Timeout'}
 
 
 @app.route("/", methods=['GET', 'POST'])
 async def root(request):
-        data = request.json
-        if request.method == 'POST' and data is not None and 'method' in data:
-            token = request.headers.get('Authorization')
-            return json(await _process_rpc(data, token))
-        return json({})
+    data = request.json
+    if request.method == 'POST' and data is not None and 'method' in data:
+        token = request.headers.get('Authorization')
+        return json(await _process_rpc(data, token))
+    return json({})
 
 
 def start_callback_server(ip, port, out_queue, in_queue, token):
@@ -84,6 +85,3 @@ def start_callback_server(ip, port, out_queue, in_queue, token):
     }
     app.config.update(conf)
     app.run(host=ip, port=port, debug=False, access_log=False)
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)

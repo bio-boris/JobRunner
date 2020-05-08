@@ -1,5 +1,3 @@
-
-
 import sys
 import os
 from clients.NarrativeJobServiceClient import NarrativeJobService
@@ -20,7 +18,7 @@ class Logger(object):
         print("Logger initialized for %s" % (job_id))
 
     def log_lines(self, lines):
-        if self.debug:
+        if self.debug:  # pragma: no cover
             for line in lines:
                 if line['is_error']:
                     sys.stderr.write(line+'\n')
@@ -29,11 +27,11 @@ class Logger(object):
         self.njs.add_job_logs(self.job_id, lines)
 
     def log(self, line):
-        if self.debug:
+        if self.debug:  # pragma: no cover
             print(line, flush=True)
         self.njs.add_job_logs(self.job_id, [{'line': line, 'is_error': 0}])
 
     def error(self, line):
-        if self.debug:
+        if self.debug:  # pragma: no cover
             print(line, flush=True)
         self.njs.add_job_logs(self.job_id, [{'line': line, 'is_error': 1}])

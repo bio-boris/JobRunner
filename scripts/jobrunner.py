@@ -52,6 +52,9 @@ def main():
     if 'USE_SHIFTER' in os.environ:
         config['runtime'] = 'shifter'
 
+    if 'JR_MAX_TASKS' in os.environ:
+        config['max_tasks'] = int(os.environ['JR_MAX_TASKS'])
+
     token = _get_token()
     at = _get_admin_token()
     if not os.path.exists(config['workdir']):

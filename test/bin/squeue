@@ -1,0 +1,22 @@
+#!/bin/bash
+
+JOB=$2
+STATEFILE=/tmp/mslurm-$JOB
+
+if [ ! -e $STATEFILE ] ; then
+  exit
+fi
+
+ST=$(cat $STATEFILE)
+echo $ST
+
+#if [[ "$ST" == "PD" ]] ; then
+#  NS="R"
+#elif [[ "$ST" == "R" ]] ; then
+#  echo ""
+#  NS="CG"
+#elif [[ "$ST" == "CG" ]] ; then
+#  rm $STATEFILE
+#  exit
+#fi
+#echo $NS > $STATEFILE

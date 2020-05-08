@@ -1,0 +1,16 @@
+#!/bin/bash
+# Wraper script for slurm job check
+# Args are the Job ID
+# Returns back Running, Finished, Pending or Unknown
+#
+JS=$(squeue -j $1 -o %t --noheader)
+
+if [ -z "$JS" ] ; then
+    echo "Unknown $1"
+elif [[ "x$JS" == "xPD" ]] ; then
+    echo "Pending"
+elif [[ "x$JS" == "xR" ]] ; then
+    echo "Running"
+elif [[ "x$JS" == "xCG" ]] ; then
+    echo "Finished"
+fi

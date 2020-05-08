@@ -26,7 +26,7 @@ class MockLogger(object):
         self.all.append([line, 1])
 
 
-class CatalogCacheTest(unittest.TestCase):
+class ShifterRunnerTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
@@ -45,8 +45,8 @@ class CatalogCacheTest(unittest.TestCase):
         }]
         labels = {}
         q = Queue()
-        self.sr.run('mock_app:latest', 'mock_app:latest', env, vols, labels,
-                    False, [q])
+        app = 'mock_app:latest'
+        self.sr.run(app, app, env, vols, labels, [q])
         result = q.get()
         self.assertEquals(result[0], 'finished')
         self.assertEquals(len(result), 3)

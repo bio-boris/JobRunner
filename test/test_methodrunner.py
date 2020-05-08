@@ -7,7 +7,8 @@ from queue import Queue
 
 from JobRunner.MethodRunner import MethodRunner
 from JobRunner.logger import Logger
-from .mock_data import NJS_JOB_PARAMS, CATALOG_GET_MODULE_VERSION
+from .mock_data import NJS_JOB_PARAMS, CATALOG_GET_MODULE_VERSION,\
+    CATALOG_GET_SECURE_CONFIG_PARAMS
 
 
 class MockLogger(object):
@@ -23,6 +24,17 @@ class MockLogger(object):
 
     def error(self, line):
         self.errors.append(line)
+
+
+class MockRunner(object):
+    def __init__(self):
+        self.env = None
+
+    def get_image(self, image):
+        return '1234'
+
+    def run(self, job_id, image, env, vols, labels, qs):
+        self.env = env
 
 
 class MethodRunnerTest(unittest.TestCase):
@@ -89,6 +101,48 @@ class MethodRunnerTest(unittest.TestCase):
         result = mr.get_output('1234', subjob=False)
         self.assertIn('error', result)
         self.assertEquals(result['error']['name'], 'Output not found')
+
+    def test_too_much_output(self):
+        mr = MethodRunner(self.cfg, '1234', logger=MockLogger())
+        module_info = deepcopy(CATALOG_GET_MODULE_VERSION)
+        module_info['docker_img_name'] = 'mock_app:latest'
+        try:
+            os.makedirs('/tmp/mr/')
+        except:
+            pass
+        if os.path.exists('/tmp/mr/workdir/output.json'):
+            os.remove('/tmp/mr/workdir/output.json')
+        q = Queue()
+        params = deepcopy(NJS_JOB_PARAMS[0])
+        params['method'] = 'echo_test.bogus'
+        action = mr.run(self.conf, module_info, params, '1234', fin_q=q)
+        self.assertIn('name', action)
+        out = q.get(timeout=10)
+        self.assertEqual(out[0], 'finished')
+        self.assertEqual('1234', out[1])
+        result = mr.get_output('1234', subjob=False, max_size=10)
+        self.assertIn('error', result)
+        err = 'Too much output from a method'
+        self.assertEquals(result['error']['name'], err)
+
+    def test_secure_params(self):
+        mr = MethodRunner(self.cfg, '1234', logger=MockLogger())
+        module_info = deepcopy(CATALOG_GET_MODULE_VERSION)
+        module_info['docker_img_name'] = 'mock_app:latest'
+        module_info['secure_config_params'] = CATALOG_GET_SECURE_CONFIG_PARAMS
+        try:
+            os.makedirs('/tmp/mr/')
+        except:
+            pass
+        if os.path.exists('/tmp/mr/workdir/output.json'):
+            os.remove('/tmp/mr/workdir/output.json')
+        q = Queue()
+        params = deepcopy(NJS_JOB_PARAMS[0])
+        params['method'] = 'echo_test.bogus'
+        mockrunner = MockRunner()
+        mr.runner = mockrunner
+        action = mr.run(self.conf, module_info, params, '1234', fin_q=q)
+        self.assertIn('KBASE_SECURE_CONFIG_PARAM_param1', mockrunner.env)
 
     def test_bad_method(self):
         mr = MethodRunner(self.cfg, '1234', logger=MockLogger())

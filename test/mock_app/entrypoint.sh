@@ -3,7 +3,12 @@
 BASE=./scripts/data
 IN=./work/input.json
 
-if [ $(grep -c bogus $IN) -gt 0 ] ; then
+if [ "z$1" == "ztest" ] ; then
+   echo "a"
+   sleep 1
+   echo "b" >&2
+   echo "c"
+elif [ $(grep -c bogus $IN) -gt 0 ] ; then
    echo "Standard out line"
    echo "Standard error line"  >& 2
    FILE=output.json

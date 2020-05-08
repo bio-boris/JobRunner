@@ -1,19 +1,20 @@
-import sys
 import os
+from time import sleep as _sleep
+from time import time as _time
 from .logger import Logger
 from clients.NarrativeJobServiceClient import NarrativeJobService as NJS
 from clients.authclient import KBaseAuth
 from .MethodRunner import MethodRunner
+from .SpecialRunner import SpecialRunner
 from .callback_server import start_callback_server
-import json
 from socket import gethostname
-from threading import Thread
-from multiprocessing import process, Process, Queue
+from multiprocessing import Process, Queue
 from .provenance import Provenance
 from queue import Empty
 import socket
 import signal
 from .CatalogCache import CatalogCache
+import requests
 
 
 class JobRunner(object):
@@ -27,7 +28,7 @@ class JobRunner(object):
         """
         inputs: config dictionary, NJS URL, Job id, Token, Admin Token
         """
-        self.njs = NJS(url=njs_url)
+        self.njs = NJS(url=njs_url, timeout=60)
         self.logger = Logger(njs_url, job_id, njs=self.njs)
         self.token = token
         self.client_group = os.environ.get("AWE_CLIENTGROUP", "None")
@@ -42,7 +43,9 @@ class JobRunner(object):
         self.prov = None
         self._init_callback_url()
         self.mr = MethodRunner(self.config, job_id, logger=self.logger)
+        self.sr = SpecialRunner(self.config, job_id, logger=self.logger)
         self.cc = CatalogCache(config)
+        self.max_task = config.get('max_tasks', 20)
         signal.signal(signal.SIGINT, self.shutdown)
 
     def _init_config(self, config, job_id, njs_url):
@@ -64,7 +67,7 @@ class JobRunner(object):
         """
         try:
             status = self.njs.check_job_canceled({'job_id': self.job_id})
-        except:
+        except Exception:
             self.logger.error("Warning: Job cancel check failed.  Continuing")
             return True
         if status.get('finished', False):
@@ -79,7 +82,7 @@ class JobRunner(object):
 
     def _get_cgroup(self):
         pid = os.getpid()
-        cfile = "/proc/%d/cgroup" % (pid)
+        cfile = "/proc/{}/cgroup".format(pid)
         if not os.path.exists(cfile):
             return None
         with open(cfile) as f:
@@ -89,6 +92,17 @@ class JobRunner(object):
                     if len(items) == 3:
                         return items[2]
         return "Unknown"
+
+    def _submit_special(self, config, job_id, data):
+        """
+        Handler for methods such as CWL, WDL and HPC
+        """
+        (module, method) = data['method'].split('.')
+        self.logger.log("Submit %s as a %s:%s job" % (job_id, module, method))
+
+        self.sr.run(config, data, job_id,
+                    callback=self.callback_url,
+                    fin_q=[self.jr_queue])
 
     def _submit(self, config, job_id, data, subjob=True):
         (module, method) = data['method'].split('.')
@@ -118,7 +132,6 @@ class JobRunner(object):
         self.mr.cleanup_all()
 
     def shutdown(self, sig, bt):
-        # TODO
         print("Recieved an interupt")
         # Send a cancel to the queue
         self.jr_queue.put(['cancel', None, None])
@@ -128,13 +141,29 @@ class JobRunner(object):
         # Run a thread for 7 day max job runtime
         cont = True
         ct = 1
+        exp_time = self._get_token_lifetime(config) - 600
         while cont:
             try:
                 req = self.jr_queue.get(timeout=1)
+                if _time() > exp_time:
+                    err = "Token has expired"
+                    self.logger.error(err)
+                    self._cancel()
+                    return {'error': err}
                 if req[0] == 'submit':
-                    # TODO fail if there are too many subjobs already
-                    self._submit(config, req[1], req[2])
+                    if ct > self.max_task:
+                        self.logger.error("Too many subtasks")
+                        self._cancel()
+                        return {'error': 'Canceled or unexpected error'}
+                    if req[2].get('method').startswith('special.'):
+                        self._submit_special(config, req[1], req[2])
+                    else:
+                        self._submit(config, req[1], req[2])
                     ct += 1
+                elif req[0] == 'finished_special':
+                    job_id = req[1]
+                    self.callback_queue.put(['output', job_id, req[2]])
+                    ct -= 1
                 elif req[0] == 'finished':
                     subjob = True
                     job_id = req[1]
@@ -154,19 +183,21 @@ class JobRunner(object):
             except Empty:
                 pass
             if ct == 0:
+                print("Count got to 0 without finish")
                 # This shouldn't happen
                 return
             # Run cancellation / finish job checker
             if not self._check_job_status():
                 self.logger.error("Job canceled or unexpected error")
                 self._cancel()
+                _sleep(5)
                 return {'error': 'Canceled or unexpected error'}
 
     def _init_callback_url(self):
         # Find a free port and Start up callback server
         if os.environ.get('CALLBACK_IP') is not None:
             self.ip = os.environ.get('CALLBACK_IP')
-            self.logger.log("Callback IP provided (%s)" % (self.ip))
+            self.logger.log("Callback IP provided ({})".format(self.ip))
         else:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("gmail.com", 80))
@@ -177,8 +208,8 @@ class JobRunner(object):
         sock.bind(('', 0))
         self.port = sock.getsockname()[1]
         sock.close()
-        url = 'http://%s:%s/' % (self.ip, self.port)
-        self.logger.log("Job runner recieved Callback URL %s" % (url))
+        url = 'http://{}:{}/'.format(self.ip, self.port)
+        self.logger.log("Job runner recieved Callback URL {}".format(url))
         self.callback_url = url
 
     def _update_prov(self, action):
@@ -189,11 +220,21 @@ class JobRunner(object):
         # Validate token and get user name
         try:
             user = self.auth.get_user(self.config['token'])
-        except:
+        except Exception:
             self.logger.error("Token validation failed")
             raise Exception()
 
         return user
+
+    def _get_token_lifetime(self, config):
+        try:
+            url = config.get('auth.service.url.v2')
+            header = {'Authorization': self.config['token']}
+            resp = requests.get(url, headers=header).json()
+            return resp['expires']
+        except Exception as e:
+            self.logger.error("Failed to get token lifetime")
+            raise e
 
     def run(self):
         """
@@ -210,7 +251,7 @@ class JobRunner(object):
         # If so, log it
         if not self._check_job_status():
             self.logger.error("Job already run or canceled")
-            sys.exit(1)
+            raise OSError("Canceled job")
 
         # Get job inputs from njs db
         try:
@@ -246,7 +287,7 @@ class JobRunner(object):
         self._submit(config, self.job_id, params, subjob=False)
 
         output = self._watch(config)
-        # TODO: Check to see if job completes and returns too much data
+
         cbs.kill()
         self.logger.log('Job is done')
         self.njs.finish_job(self.job_id, output)

@@ -4,3 +4,4 @@ test_coverage
 .coverage
 runtester.ready
 test/RunTester
+build/

@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Fake sbatch
+
+ME=$0
+if [[ $1 == "run" ]] ; then
+   # Fake a job doing stuff
+   JOBID=$2
+   SCR=$3
+   STDOUT=$4
+   STDERR=$5
+   STATEFILE=/tmp/mslurm-$JOBID
+   # Simulate pending
+   sleep 1
+   echo R > $STATEFILE
+   touch $STDOUT $STDERR
+   echo "line1" > $STDOUT
+   sleep 1
+   echo "line2" > $STDERR
+   sleep 1
+   echo "line3" >> $STDOUT
+   echo CG > $STATEFILE
+   sleep 1
+   rm $STATEFILE
+   exit
+fi
+
+JOB=$RANDOM
+OUTFILE=$2
+ERRFILE=$4
+SCR=$5
+echo "PD" > /tmp/mslurm-$JOB
+nohup $ME run $JOB $SCR $OUTFILE $ERRFILE 0<&- &>/dev/null &
+echo "Submitted $@" >> /tmp/debug
+echo $JOB
